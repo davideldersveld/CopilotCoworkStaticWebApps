@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ann Arbor Street Trees</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      display: flex; flex-direction: column; height: 100vh;
+      background: #111827; color: #e2e8f0;
+    }
+
+    /* ── HEADER ── */
+    #header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 18px; background: #0f2847;
+      border-bottom: 1px solid #1e3a5f; flex-shrink: 0; gap: 12px;
+    }
+    #header h1 {
+      font-size: 15px; font-weight: 700; color: #e2e8f0;
+      display: flex; align-items: center; gap: 8px; white-space: nowrap;
+    }
+    #header h1 .icon { font-size: 19px; }
+    #header h1 .sub { font-weight: 400; color: #64a0cc; font-size: 13px; }
+
+    #stats-bar { display: flex; gap: 20px; }
+    .stat { display: flex; flex-direction: column; align-items: center; min-width: 48px; }
+    .stat .n { font-size: 17px; font-weight: 700; color: #5bc4f5; line-height: 1.1; }
+    .stat .l { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: #6b8fa8; margin-top: 1px; }
+
+    /* ── CONTROLS ── */
+    #controls {
+      display: flex; align-items: center; flex-wrap: wrap;
+      gap: 8px 14px; padding: 7px 18px;
+      background: #0d1f35; border-bottom: 1px solid #1a3050; flex-shrink: 0;
+    }
+    .cl { font-size: 11px; color: #6b8fa8; text-transform: uppercase; letter-spacing: .4px; white-space: nowrap; }
+    select, input[type=text] {
+      background: #0f2847; color: #c8ddf0; border: 1px solid #2a5080;
+      border-radius: 5px; padding: 4px 8px; font-size: 12px; cursor: pointer;
+    }
+    select:focus, input:focus { outline: none; border-color: #5bc4f5; }
+    input[type=text] { width: 160px; }
+    .sep { width: 1px; height: 20px; background: #1e3a5f; flex-shrink: 0; }
+
+    /* legend chips */
+    #legend { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+    .chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 11px; color: #94b8cc; cursor: pointer;
+      padding: 2px 6px; border-radius: 4px; transition: background .15s;
+      white-space: nowrap;
+    }
+    .chip:hover { background: rgba(91,196,245,.1); }
+    .chip.off { opacity: .3; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; border: 1.5px solid rgba(255,255,255,.35); }
+
+    /* ── MAP ── */
+    #map-wrap { flex: 1; position: relative; overflow: hidden; }
+    #map { width: 100%; height: 100%; }
+
+    /* ── OVERLAY ── */
+    #overlay {
+      position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 14px;
+      background: rgba(11,28,50,.93); z-index: 1000;
+    }
+    #overlay.gone { display: none; }
+    .spin {
+      width: 44px; height: 44px; border-radius: 50%;
+      border: 4px solid rgba(91,196,245,.2); border-top-color: #5bc4f5;
+      animation: rot .8s linear infinite;
+    }
+    @keyframes rot { to { transform: rotate(360deg); } }
+    #ovmsg { font-size: 14px; color: #94b8cc; }
+    #pbar-wrap { width: 240px; height: 5px; background: rgba(91,196,245,.15); border-radius: 3px; overflow: hidden; }
+    #pbar { height: 100%; width: 0%; background: linear-gradient(90deg,#3a9bd9,#5bc4f5); border-radius: 3px; transition: width .2s; }
+
+    /* ── POPUP ── */
+    .leaflet-popup-content-wrapper {
+      background: #0d2036; color: #d0e8f8; border: 1px solid #2a5080;
+      border-radius: 9px; box-shadow: 0 6px 24px rgba(0,0,0,.7);
+    }
+    .leaflet-popup-tip { background: #0d2036; }
+    .leaflet-popup-content { margin: 11px 14px; min-width: 200px; }
+    .pname { font-size: 14px; font-weight: 700; color: #5bc4f5; margin-bottom: 3px; }
+    .psci  { font-size: 11px; color: #6b9aba; font-style: italic; margin-bottom: 8px; }
+    .pgrid { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; font-size: 12px; }
+    .pk    { color: #6b9aba; }
+    .pv    { color: #c8ddf0; font-weight: 500; }
+    .badge {
+      display: inline-block; padding: 1px 7px; border-radius: 9px;
+      font-size: 11px; font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+
+<div id="header">
+  <h1>
+    <span class="icon">🌳</span>
+    Ann Arbor Street Trees
+    <span class="sub">— City of Ann Arbor Open Data</span>
+  </h1>
+  <div id="stats-bar">
+    <div class="stat"><span class="n" id="s-total">—</span><span class="l">Trees</span></div>
+    <div class="stat"><span class="n" id="s-genera">—</span><span class="l">Genera</span></div>
+    <div class="stat"><span class="n" id="s-shown">—</span><span class="l">Shown</span></div>
+  </div>
+</div>
+
+<div id="controls">
+  <span class="cl">Color by</span>
+  <select id="sel-color">
+    <option value="genus">Tree genus</option>
+    <option value="dbh">Trunk size (DBH)</option>
+    <option value="height">Height</option>
+    <option value="side">Placement</option>
+  </select>
+
+  <div class="sep"></div>
+  <span class="cl">Filter genus</span>
+  <input type="text" id="flt-genus" placeholder="e.g. Maple, Oak…" />
+
+  <div class="sep"></div>
+  <span class="cl">Placement</span>
+  <select id="flt-side">
+    <option value="">All</option>
+    <option value="Front">Front</option>
+    <option value="Rear">Rear</option>
+    <option value="Median">Median</option>
+    <option value="Park">Park</option>
+    <option value="Vacant">Vacant site</option>
+  </select>
+
+  <div class="sep"></div>
+  <div id="legend"></div>
+</div>
+
+<div id="map-wrap">
+  <div id="map"></div>
+  <div id="overlay">
+    <div class="spin"></div>
+    <div id="ovmsg">Loading tree data…</div>
+    <div id="pbar-wrap"><div id="pbar"></div></div>
+  </div>
+</div>
+
+<!-- local data (keep trees_data.js in same folder) -->
+<script src="trees_data.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+<script>
+/* ══════════════════════════════════════════
+   DATA LAYOUT  (index constants)
+   window.TREE_DATA = [[lat, lng, genus, name, botanical, dbh, height, street, side, area, id], ...]
+══════════════════════════════════════════ */
+const I = { LAT:0, LNG:1, GENUS:2, NAME:3, BOT:4, DBH:5, HGT:6, STREET:7, SIDE:8, AREA:9, ID:10 };
+
+/* ── COLOUR PALETTES ── */
+const GENUS_PALETTE = [
+  '#5bc4f5','#4ade80','#f97316','#facc15',
+  '#c084fc','#f472b6','#34d399','#fb923c',
+  '#a3e635','#60a5fa','#e879f9','#2dd4bf',
+];
+
+const DBH_BANDS = [
+  { max:5,   col:'#dbeafe', lbl:'0–5"' },
+  { max:10,  col:'#7ec8f7', lbl:'6–10"' },
+  { max:15,  col:'#3b9ed6', lbl:'11–15"' },
+  { max:20,  col:'#1a6fa0', lbl:'16–20"' },
+  { max:30,  col:'#0e4268', lbl:'21–30"' },
+  { max:999, col:'#07253b', lbl:'>30"' },
+];
+
+const HGT_BANDS = [
+  { max:10,  col:'#d1fae5', lbl:'0–10\'' },
+  { max:20,  col:'#6ee7b7', lbl:'11–20\'' },
+  { max:30,  col:'#10b981', lbl:'21–30\'' },
+  { max:40,  col:'#047857', lbl:'31–40\'' },
+  { max:999, col:'#022c22', lbl:'>40\'' },
+];
+
+const SIDE_COLORS = {
+  'Front':  '#5bc4f5',
+  'Rear':   '#a78bfa',
+  'Median': '#f97316',
+  'Park':   '#4ade80',
+};
+
+/* ── STATE ── */
+let colorMode   = 'genus';
+let fltGenus    = '';
+let fltSide     = '';
+let hiddenKeys  = new Set();
+let clusterGrp  = null;
+let genusMap    = {};   // genus -> palette index
+let topGenera   = [];   // top 12 genera
+
+/* ── MAP ── */
+const map = L.map('map', { center:[42.281,-83.743], zoom:13 });
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution:'© <a href="https://openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/">CARTO</a>',
+  subdomains:'abcd', maxZoom:20
+}).addTo(map);
+
+/* ── HELPERS ── */
+const setMsg  = t => document.getElementById('ovmsg').textContent = t;
+const setPct  = p => document.getElementById('pbar').style.width = p+'%';
+const hideOvl = () => document.getElementById('overlay').classList.add('gone');
+
+function parseLow(rangeStr) {
+  // "6 - 10" -> 6,  "N/A" -> 0
+  if (!rangeStr) return 0;
+  const m = rangeStr.match(/(\d+)/);
+  return m ? parseInt(m[1]) : 0;
+}
+
+function dbhColor(str) {
+  const v = parseLow(str);
+  for (const b of DBH_BANDS) if (v <= b.max) return b.col;
+  return DBH_BANDS.at(-1).col;
+}
+function hgtColor(str) {
+  const v = parseLow(str);
+  for (const b of HGT_BANDS) if (v <= b.max) return b.col;
+  return HGT_BANDS.at(-1).col;
+}
+function genusColor(g) {
+  if (!g) return '#4a6070';
+  const idx = genusMap[(g||'').toLowerCase()];
+  return idx !== undefined ? GENUS_PALETTE[idx % GENUS_PALETTE.length] : '#4a6070';
+}
+function sideColor(s) { return SIDE_COLORS[s] || '#64748b'; }
+
+function getColor(row) {
+  switch(colorMode) {
+    case 'genus':  return genusColor(row[I.GENUS]);
+    case 'dbh':    return dbhColor(row[I.DBH]);
+    case 'height': return hgtColor(row[I.HGT]);
+    case 'side':   return sideColor(row[I.SIDE]);
+    default:       return '#5bc4f5';
+  }
+}
+
+/* ── POPUP ── */
+function makePopup(row) {
+  const gc = genusColor(row[I.GENUS]);
+  const rows = [
+    row[I.DBH]    ? ['DBH',        row[I.DBH]+'"'] : null,
+    row[I.HGT]    ? ['Height',     row[I.HGT]+'\''] : null,
+    row[I.STREET] ? ['Street',     row[I.STREET]] : null,
+    row[I.SIDE]   ? ['Side',       row[I.SIDE]] : null,
+    row[I.AREA]   ? ['Mgmt area',  row[I.AREA]] : null,
+    row[I.ID]     ? ['Tree ID',    row[I.ID]] : null,
+  ].filter(Boolean);
+
+  return `
+    <div class="pname">${row[I.NAME] || row[I.GENUS] || 'Unknown'}</div>
+    ${row[I.BOT] ? `<div class="psci">${row[I.BOT]}</div>` : ''}
+    ${row[I.GENUS] ? `<span class="badge" style="background:${gc}22;color:${gc};border:1px solid ${gc}55;margin-bottom:7px;display:inline-block">${row[I.GENUS]}</span>` : ''}
+    <div class="pgrid">
+      ${rows.map(([k,v])=>`<span class="pk">${k}</span><span class="pv">${v}</span>`).join('')}
+    </div>`;
+}
+
+/* ── RENDER ── */
+function render() {
+  if (clusterGrp) map.removeLayer(clusterGrp);
+  clusterGrp = L.markerClusterGroup({
+    maxClusterRadius: 48,
+    showCoverageOnHover: false,
+    spiderfyOnMaxZoom: true,
+    iconCreateFunction(cluster) {
+      const n = cluster.getChildCount();
+      const sz = n>2000?46 : n>400?38 : n>80?30 : 24;
+      return L.divIcon({
+        html:`<div style="
+          width:${sz}px;height:${sz}px;border-radius:50%;
+          background:rgba(16,80,40,.82);border:2px solid rgba(74,222,128,.65);
+          display:flex;align-items:center;justify-content:center;
+          color:#bbf7d0;font-size:${sz>36?12:10}px;font-weight:700;">
+          ${n>9999?(n/1000).toFixed(1)+'k':n}
+        </div>`,
+        className:'', iconSize:[sz,sz]
+      });
+    }
+  });
+
+  const gf = fltGenus.trim().toLowerCase();
+  const sf = fltSide.toLowerCase();
+  let shown = 0;
+
+  for (const row of window.TREE_DATA) {
+    const g = (row[I.GENUS]||'').toLowerCase();
+    const s = (row[I.SIDE]||'');
+
+    if (gf && !g.includes(gf)) continue;
+    if (sf && s.toLowerCase() !== sf) continue;
+    if (hiddenKeys.size && colorMode === 'genus' && hiddenKeys.has(g)) continue;
+    if (hiddenKeys.size && colorMode === 'side'  && hiddenKeys.has(s)) continue;
+
+    const col = getColor(row);
+    const mk  = L.circleMarker([row[I.LAT], row[I.LNG]], {
+      radius:5.5, fillColor:col, color:'rgba(255,255,255,.2)',
+      weight:1, fillOpacity:.85,
+    });
+    mk.bindPopup(makePopup(row), { maxWidth:290 });
+    clusterGrp.addLayer(mk);
+    shown++;
+  }
+
+  map.addLayer(clusterGrp);
+  document.getElementById('s-shown').textContent = shown.toLocaleString();
+}
+
+/* ── LEGEND ── */
+function buildLegend() {
+  const wrap = document.getElementById('legend');
+  wrap.innerHTML = '';
+
+  let items = [];
+  if (colorMode === 'genus') {
+    items = topGenera.map((g,i) => ({
+      key: g.toLowerCase(), label: g,
+      col: GENUS_PALETTE[i % GENUS_PALETTE.length],
+    }));
+    items.push({ key:'__other', label:'Other', col:'#4a6070' });
+  } else if (colorMode === 'dbh') {
+    items = DBH_BANDS.map(b => ({ key:b.lbl, label:b.lbl, col:b.col }));
+  } else if (colorMode === 'height') {
+    items = HGT_BANDS.map(b => ({ key:b.lbl, label:b.lbl, col:b.col }));
+  } else if (colorMode === 'side') {
+    items = Object.entries(SIDE_COLORS).map(([k,c]) => ({ key:k, label:k, col:c }));
+    items.push({ key:'__other', label:'Other', col:'#64748b' });
+  }
+
+  for (const item of items) {
+    const chip = document.createElement('span');
+    chip.className = 'chip' + (hiddenKeys.has(item.key) ? ' off' : '');
+    chip.innerHTML = `<span class="dot" style="background:${item.col}"></span>${item.label}`;
+    chip.title = 'Click to toggle';
+    chip.addEventListener('click', () => {
+      if (hiddenKeys.has(item.key)) hiddenKeys.delete(item.key);
+      else hiddenKeys.add(item.key);
+      chip.classList.toggle('off');
+      render();
+    });
+    wrap.appendChild(chip);
+  }
+}
+
+/* ── INIT ── */
+function init() {
+  setMsg('Processing tree data…'); setPct(30);
+
+  const data = window.TREE_DATA;
+  if (!data || !data.length) {
+    setMsg('trees_data.js not found — make sure it is in the same folder as this HTML file.');
+    return;
+  }
+
+  // Genus frequency
+  const freq = {};
+  for (const row of data) {
+    const g = row[I.GENUS] || '';
+    if (g) freq[g] = (freq[g]||0) + 1;
+  }
+  topGenera = Object.entries(freq)
+    .sort((a,b)=>b[1]-a[1]).slice(0,12).map(e=>e[0]);
+  topGenera.forEach((g,i) => genusMap[g.toLowerCase()] = i);
+
+  const uniqueGenera = Object.keys(freq).length;
+
+  document.getElementById('s-total').textContent  = data.length.toLocaleString();
+  document.getElementById('s-genera').textContent = uniqueGenera.toLocaleString();
+
+  setPct(70); setMsg('Rendering map…');
+  buildLegend();
+
+  // Defer heavy render to next frame so progress bar updates
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      render();
+
+      // Fit bounds on sample points
+      const sample = data.filter((_,i)=>i%100===0).map(r=>[r[I.LAT],r[I.LNG]]);
+      try { map.fitBounds(L.latLngBounds(sample).pad(.04)); } catch(e){}
+
+      setPct(100);
+      setTimeout(hideOvl, 200);
+    });
+  });
+}
+
+/* ── EVENTS ── */
+document.getElementById('sel-color').addEventListener('change', e => {
+  colorMode = e.target.value;
+  hiddenKeys.clear();
+  buildLegend();
+  render();
+});
+
+let gDebounce;
+document.getElementById('flt-genus').addEventListener('input', e => {
+  clearTimeout(gDebounce);
+  gDebounce = setTimeout(() => { fltGenus = e.target.value; render(); }, 320);
+});
+
+document.getElementById('flt-side').addEventListener('change', e => {
+  fltSide = e.target.value;
+  render();
+});
+
+/* ── KICK OFF ── */
+if (window.TREE_DATA) {
+  init();
+} else {
+  // trees_data.js may still be loading (unlikely with sync script tags, but guard anyway)
+  window.addEventListener('load', () => {
+    if (window.TREE_DATA) init();
+    else setMsg('Error: trees_data.js not loaded. Keep both files in the same folder.');
+  });
+}
+</script>
+</body>
+</html>
